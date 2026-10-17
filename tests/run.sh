@@ -41,7 +41,7 @@ version() { gitversion "$REPO" SemVer; }
 # Solo la parte major.minor.patch, ignorando el preleanzamiento.
 mmp() { gitversion "$REPO" MajorMinorPatch; }
 
-# Etiqueta de preleanzamiento (beta / rc / vacia).
+# Etiqueta de preleanzamiento (vacia en main, nombre de la rama en ramas de trabajo).
 label() { gitversion "$REPO" PreReleaseLabel; }
 
 # check <descripcion> <esperado> <obtenido>
@@ -113,39 +113,34 @@ section "Linea base"
 
 check "1. main recien etiquetado v0.1.0" "0.1.0" "$(version)"
 
-git_q checkout -b development
-check "2. development parte de la misma version" "0.1.0-beta.0" "$(version)"
-
 # =============================================================================
-section "Incrementos por rama mergeada"
+section "Incrementos por rama mergeada a main"
 # =============================================================================
 
-work_merge "feat/perfil-de-usuario" development
-check "3. feat/* sube minor" "0.2.0" "$(mmp)"
+work_merge "feat/perfil-de-usuario" main
+check "2. feat/* sube minor" "0.2.0" "$(mmp)"
 
-work_merge "docs/manual-de-uso" development
-check "4. docs/* NO sube la version" "0.2.0" "$(mmp)"
+work_merge "docs/manual-de-uso" main
+check "3. docs/* NO sube la version" "0.2.0" "$(mmp)"
 
-work_merge "cicd/cachear-dependencias" development
-check "5. cicd/* NO sube la version" "0.2.0" "$(mmp)"
+work_merge "cicd/cachear-dependencias" main
+check "4. cicd/* NO sube la version" "0.2.0" "$(mmp)"
 
-work_merge "spike/prueba-de-concepto" development
-check "6. rama fuera de convencion NO sube la version" "0.2.0" "$(mmp)"
+work_merge "spike/prueba-de-concepto" main
+check "5. rama fuera de convencion NO sube la version" "0.2.0" "$(mmp)"
 
-check "7. la etiqueta de development es beta" "beta" "$(label)"
+check "6. main da la version limpia, sin sufijo" "0.2.0" "$(version)"
+check "7. main no lleva etiqueta de preleanzamiento" "" "$(label)"
 
 # =============================================================================
-section "Promocion development -> staging -> main"
+section "Version parado en una rama de trabajo"
 # =============================================================================
 
-git_q checkout -b staging main
-git_q merge --no-ff development -m "Merge branch 'development' into staging"
-check "8. staging hereda el numero" "0.2.0" "$(mmp)"
-check "9. staging usa la etiqueta rc" "rc" "$(label)"
-
+git_q checkout -b feat/pantalla-de-ajustes main
+git_q commit --allow-empty -m "trabajo en feat/pantalla-de-ajustes"
+check "8. la rama de trabajo lleva su nombre como etiqueta" "pantalla-de-ajustes" "$(label)"
 git_q checkout main
-git_q merge --no-ff staging -m "Merge branch 'staging' into main"
-check "10. main da la version limpia, sin sufijo" "0.2.0" "$(version)"
+git_q branch -D feat/pantalla-de-ajustes
 
 # =============================================================================
 section "El tag cierra el ciclo de version"
@@ -156,62 +151,54 @@ section "El tag cierra el ciclo de version"
 # lo que abre un ciclo nuevo. Sin el, todo se sigue acumulando contra v0.1.0.
 
 git_q tag v0.2.0
-check "11. tras etiquetar, main se queda en la version publicada" "0.2.0" "$(version)"
+check "9. tras etiquetar, main se queda en la version publicada" "0.2.0" "$(version)"
 
 # =============================================================================
-section "Back-merges y hotfix"
+section "Hotfix y back-merges"
 # =============================================================================
-
-git_q checkout development
-git_q merge --no-ff main -m "Merge branch 'main' into development"
-check "12. back-merge main -> development no incrementa" "0.2.0" "$(mmp)"
 
 work_merge "hotfix/fuga-de-sesiones" main
-check "13. hotfix/* sube patch en main" "0.2.1" "$(mmp)"
+check "10. hotfix/* sube patch" "0.2.1" "$(mmp)"
 
 # Back-merge hacia una rama de trabajo: el mensaje menciona feat/* como DESTINO,
 # no como origen. No debe contar como incremento.
-git_q checkout development
-git_q checkout -b feat/pantalla-de-ajustes
-git_q commit --allow-empty -m "trabajo en feat/pantalla-de-ajustes"
-git_q merge --no-ff development -m "Merge branch 'development' into 'feat/pantalla-de-ajustes'"
-git_q checkout development
-git_q merge --no-ff feat/pantalla-de-ajustes -m "Merge branch 'feat/pantalla-de-ajustes' into development"
-check "14. back-merge hacia feat/* no cuenta doble" "0.3.0" "$(mmp)"
+git_q checkout -b feat/exportar-datos main
+git_q commit --allow-empty -m "trabajo en feat/exportar-datos"
+git_q merge --no-ff main -m "Merge branch 'main' into 'feat/exportar-datos'"
+git_q checkout main
+git_q merge --no-ff feat/exportar-datos -m "Merge branch 'feat/exportar-datos' into main"
+check "11. back-merge main -> feat/* no cuenta doble" "0.3.0" "$(mmp)"
 
 # =============================================================================
 section "Formatos de mensaje de las plataformas"
 # =============================================================================
 
-git_q checkout main; git_q merge --no-ff development -m "Merge branch 'development' into main"; git_q tag v0.3.0
-git_q checkout development
+git_q tag v0.3.0
 
-work_merge_msg "feat/exportar-a-csv" development \
+work_merge_msg "feat/exportar-a-csv" main \
   "Merge pull request #42 from mi-org/feat/exportar-a-csv"
-check "15. mensaje de PR de GitHub sube minor" "0.4.0" "$(mmp)"
+check "12. mensaje de PR de GitHub sube minor" "0.4.0" "$(mmp)"
 
-git_q checkout main; git_q merge --no-ff development -m "Merge branch 'development' into main"; git_q tag v0.4.0
-git_q checkout development
+git_q tag v0.4.0
 
-work_merge_msg "refactor/capa-de-datos" development \
-  "Merge branch 'refactor/capa-de-datos' into 'development'"
-check "16. mensaje de MR de GitLab sube major" "1.0.0" "$(mmp)"
+work_merge_msg "refactor/capa-de-datos" main \
+  "Merge branch 'refactor/capa-de-datos' into 'main'"
+check "13. mensaje de MR de GitLab sube major" "1.0.0" "$(mmp)"
 
 # =============================================================================
 section "Squash merge (limitacion conocida)"
 # =============================================================================
 # Un squash no deja commit de merge, asi que el nombre de la rama desaparece y
-# el incremento no ocurre. Por eso el README exige merge commits.
+# el incremento no ocurre. Por eso la guia (docs/guia-completa.md) exige merge commits.
 
-git_q checkout main; git_q merge --no-ff development -m "Merge branch 'development' into main"; git_q tag v1.0.0
-git_q checkout development
+git_q tag v1.0.0
 
 git_q checkout -b feat/no-deberia-contar
 git_q commit --allow-empty -m "trabajo en feat/no-deberia-contar"
-git_q checkout development
+git_q checkout main
 git_q merge --squash feat/no-deberia-contar
 git_q commit --allow-empty -m "feat: no deberia contar (squashed)"
-check "17. squash NO incrementa (por eso se prohibe)" "1.0.0" "$(mmp)"
+check "14. squash NO incrementa (por eso se prohibe)" "1.0.0" "$(mmp)"
 
 # =============================================================================
 section "Repo sin ningun tag"
@@ -224,14 +211,13 @@ git -C "$REPO_NOTAG" config user.name "Arnes de pruebas"
 cp "$CONFIG" "$REPO_NOTAG/GitVersion.yml"
 git -C "$REPO_NOTAG" add GitVersion.yml >/dev/null 2>&1
 git -C "$REPO_NOTAG" commit -q -m "chore: inicial" >/dev/null 2>&1
-git -C "$REPO_NOTAG" checkout -q -b development
 git -C "$REPO_NOTAG" checkout -q -b feat/primera
 git -C "$REPO_NOTAG" commit -q --allow-empty -m "trabajo"
-git -C "$REPO_NOTAG" checkout -q development
-git -C "$REPO_NOTAG" merge --no-ff -q feat/primera -m "Merge branch 'feat/primera' into development"
+git -C "$REPO_NOTAG" checkout -q main
+git -C "$REPO_NOTAG" merge --no-ff -q feat/primera -m "Merge branch 'feat/primera' into main"
 notag_version="$(gitversion "$REPO_NOTAG" MajorMinorPatch)"
 rm -rf "$REPO_NOTAG"
-check "18. sin ningun tag, arranca y aplica el minor" "0.1.0" "$notag_version"
+check "15. sin ningun tag, arranca y aplica el minor" "0.1.0" "$notag_version"
 
 # =============================================================================
 
