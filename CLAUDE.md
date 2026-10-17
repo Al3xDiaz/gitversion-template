@@ -19,18 +19,20 @@ ejecutable es `./tests/run.sh`.
 - `ci/github-actions/gitversion.yml` — workflow reutilizable para GitHub Actions.
 - `ci/gitlab-ci/gitversion.yml` — job `include`-able para GitLab CI.
 - `tests/run.sh` — arnés de pruebas contra un repo git sintético.
-- `README.md` — documentación para el repo consumidor.
+- `README.md` — resumen corto y script de prueba del flujo.
+- `docs/guia-completa.md` — documentación completa para el repo consumidor y nota de diseño.
 
 ## Cómo funciona (lo no obvio)
 
-El incremento lo decide la rama mergeada (`feat/*` → minor, `refactor/*` → major,
-`hotfix/*` → patch, `docs/*` y `cicd/*` → nada); la etiqueta la decide la rama actual
-(`development` → beta, `staging` → rc, `main` → limpia).
+Flujo único `<tipo>/* → main` (sin ramas de integración). El incremento lo decide la rama
+mergeada a `main` (`feat/*` → minor, `refactor/*` → major, `hotfix/*` → patch, `docs/*` y
+`cicd/*` → nada); `main` da siempre la versión limpia y una rama de trabajo lleva su nombre
+como etiqueta (`1.2.0-nombre.N`).
 
 Eso **no** se implementa con la estrategia `Mainline` / `TrunkBased/preview1`, que es lo que
 la documentación de GitVersion sugiere para este caso. Se probó y tiene dos bugs bloqueantes
 en 6.8.2 (crash con mainlines encadenadas, y la versión retrocede tras un merge con
-`increment: None`). Está documentado en la nota de diseño al final del `README.md` — **léela
+`increment: None`). Está documentado en la nota de diseño al final de `docs/guia-completa.md` — **léela
 antes de proponer migrar a `Mainline`.**
 
 En su lugar se usa `commit-message-incrementing`, que es estable: los regex de bump
@@ -40,7 +42,7 @@ mensaje del commit de merge. De ahí se derivan dos cosas que hay que respetar a
 - Los regex están anclados a la rama **origen** del merge. Si los tocas, mantén esa propiedad
   o un back-merge hacia `feat/*` empezará a subir la versión por error.
 - Todo depende de que exista un commit de merge real. El squash rompe el mecanismo; por eso
-  el README exige desactivarlo en el repo consumidor.
+  la guía completa exige desactivarlo en el repo consumidor.
 
 ## Gotcha crítico: profundidad del clon
 

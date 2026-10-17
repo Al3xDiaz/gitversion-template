@@ -1,156 +1,106 @@
 # Plantilla de GitVersion
 
-Configuración reutilizable de [GitVersion](https://gitversion.net/) para obtener versionado
-SemVer automático a partir del historial de git, sin mantener el número de versión a mano.
+Configuración reutilizable de [GitVersion](https://gitversion.net/) para calcular la versión
+SemVer a partir del historial de git, sin escribir el número a mano. Se copia dentro de otros
+repos: un `GitVersion.yml` más fragmentos de CI para GitHub Actions y GitLab CI.
 
-Se copia dentro de otros repositorios. No es una aplicación ni una librería: no tiene build
-propio ni suite de tests de producto.
+El flujo es `<tipo>/* → main`: el tipo de la rama que se mergea a `main` decide el incremento
+(`feat/*` sube minor, `refactor/*` major, `hotfix/*` patch; `docs/*` y `cicd/*` no suben nada).
+Requiere merge commits reales: un squash o rebase merge no sube la versión. Reglas, instalación
+y la nota de diseño están en [`docs/guia-completa.md`](docs/guia-completa.md); la suite completa
+corre con `./tests/run.sh`.
 
-## Reglas de versionado
+## Probar el flujo a mano
 
-El **incremento** lo decide la rama que se mergea. La **etiqueta** la decide la rama en la que
-estás parado.
+Pasos para ejecutar uno a uno, en orden, como notebook (Jupyter con kernel bash, Runme, etc.).
+Cada bloque es independiente: no usa variables ni funciones de otro, solo la carpeta
+`/tmp/gitversion-demo`, así que funciona aunque cada celda corra en un shell nuevo. Necesita
+Docker. El primer bloque debe ejecutarse desde la raíz de este repo.
 
-| Rama de trabajo | Efecto al mergear | | Rama de larga vida | Versión |
-|---|---|---|---|---|
-| `feat/*` | minor | | `development` | `1.2.0-beta.7` |
-| `refactor/*` | major | | `staging` | `1.2.0-rc.2` |
-| `hotfix/*` | patch | | `main` | `1.2.0` |
-| `docs/*` | sin cambio | | | |
-| `cicd/*` | sin cambio | | | |
-| cualquier otro nombre | sin cambio | | | |
-
-Las promociones `development → staging → main` no incrementan: propagan el número ya
-calculado. Los back-merges (`main → development`) tampoco.
-
-El orden de precedencia SemVer queda correcto: `1.2.0-beta.7` < `1.2.0-rc.2` < `1.2.0`.
-
-## Instalación en un repo consumidor
-
-1. Copia `GitVersion.yml` a la raíz del repositorio.
-2. Copia el fragmento de CI que corresponda:
-   - GitHub Actions → `ci/github-actions/gitversion.yml` a `.github/workflows/gitversion.yml`
-   - GitLab CI → `ci/gitlab-ci/gitversion.yml` a `ci/gitversion.yml` y añádelo con `include:`
-3. Configura la protección de rama según la sección siguiente. **No es opcional.**
-4. Pon un tag inicial en `main`: `git tag v0.1.0 && git push origin v0.1.0`.
-
-## Requisito obligatorio: merge commits
-
-El mecanismo lee el nombre de la rama del **mensaje del commit de merge**
-(`Merge branch 'feat/x' into development`). Un **squash merge o un rebase merge borran esa
-información y la versión no sube.**
-
-En el repo consumidor hay que permitir solo merge commits hacia `development`:
-
-- **GitHub** → Settings → General → Pull Requests: deja marcado únicamente
-  *Allow merge commits*. Desmarca *Allow squash merging* y *Allow rebase merging*.
-- **GitLab** → Settings → Merge requests → Merge method: *Merge commit*. Y desmarca
-  *Squash commits when merging*.
-
-Están soportados los tres formatos de mensaje que se dan en la práctica:
-
-```
-git plano    Merge branch 'feat/x' into development
-GitHub PR    Merge pull request #42 from mi-org/feat/x
-GitLab MR    Merge branch 'feat/x' into 'development'
-```
-
-Los regex están anclados a la rama **origen**, así que un back-merge hacia una rama de trabajo
-(`Merge branch 'development' into 'feat/x'`) no dispara un incremento por error.
-
-## El tag cierra el ciclo de versión
-
-GitVersion aplica el **máximo** incremento acumulado desde el último tag, una sola vez. Tres
-`feat/*` desde la última publicación son un único salto de minor, no tres — que es la
-semántica correcta de SemVer, porque lo que se versiona son *releases*, no commits.
-
-La consecuencia práctica: **etiquetar `main` al publicar es lo que abre un ciclo nuevo.** Sin
-tag, todo se sigue acumulando contra el anterior, y un `hotfix/*` posterior a un `feat/*`
-seguiría dando `0.2.0` en vez de `0.2.1`, porque `max(minor, patch) = minor`.
-
-El tag lo pone el proceso de release —una persona, o un job de publicación aparte—, nunca el
-job de CI que calcula la versión. Ese job es de solo lectura por diseño.
+### 0. Preparar el comando `version`
 
 ```bash
-git checkout main && git pull
-git tag "v$(dotnet-gitversion /showvariable MajorMinorPatch)"
-git push origin --tags
+cat > /tmp/gv-version <<'EOF'
+#!/usr/bin/env bash
+docker run --rm -v "$PWD:/repo" gittools/gitversion:6.8.2 /repo /nocache /showvariable SemVer | tail -1
+EOF
+chmod +x /tmp/gv-version
 ```
 
-## Consumir la versión
+### 1. Crear el repo temporal con `main`
 
-| Variable | Ejemplo | Para qué |
-|---|---|---|
-| `SemVer` | `1.2.0-beta.7` | tags de git, tags de imagen, artefactos |
-| `MajorMinorPatch` | `1.2.0` | el número pelado, sin preleanzamiento |
-| `FullSemVer` / `InformationalVersion` | `1.2.0-beta.7+Branch.x.Sha.abc` | trazabilidad |
-
-Usa `SemVer`. `FullSemVer` e `InformationalVersion` incluyen `+metadata`, y el `+` **no es un
-carácter válido en un tag de Docker**.
-
-GitVersion no produce el prefijo `v`: vive en el tag de git y la configuración ya lo absorbe
-con `tag-prefix`. Si lo quieres en la salida, constrúyelo en el consumidor como `v${SEMVER}`.
-
-## Pruebas
+Repo nuevo fuera de este, con la configuración de la plantilla y el tag `v0.1.0`.
 
 ```bash
-./tests/run.sh
+rm -rf /tmp/gitversion-demo && mkdir /tmp/gitversion-demo || exit 1
+cp GitVersion.yml /tmp/gitversion-demo/ || exit 1   # debe correr desde la raíz de este repo
+cd /tmp/gitversion-demo || exit 1
+git init -q -b main
+git config user.name prueba && git config user.email prueba@ejemplo.local
+git add . && git commit -qm "config inicial" && git tag v0.1.0
+/tmp/gv-version
 ```
 
-Levanta un repo git sintético en un directorio temporal, reproduce la topología de ramas real
-y compara las versiones calculadas contra las esperadas. Cubre 18 escenarios: los incrementos
-por tipo de rama, la promoción a través de las tres ramas de larga vida, back-merges, los tres
-formatos de mensaje de merge, el comportamiento del squash y un repo sin ningún tag.
+Esperado: `0.1.0`
 
-Solo necesita Docker. **Córrelo siempre que cambies `GitVersion.yml` o subas la versión
-fijada de GitVersion.**
-
-## Probar a mano
+### 2. Crear la rama `feat/*` con dos commits
 
 ```bash
-# Con Docker, sin instalar nada
-docker run --rm -v "$PWD:/repo" gittools/gitversion:6.8.2 /repo /nocache
-
-# Una sola variable
-docker run --rm -v "$PWD:/repo" gittools/gitversion:6.8.2 /repo /nocache /showvariable SemVer
-
-# Con .NET instalado
-dotnet tool install -g GitVersion.Tool
-dotnet-gitversion
+cd /tmp/gitversion-demo || exit 1
+git checkout -q -b feat/perfil-de-usuario
+echo uno > test.txt && git add . && git commit -qm "agrega test.txt"
+echo dos >> test.txt && git commit -qam "modifica test.txt"
+/tmp/gv-version
 ```
 
-`/nocache` evita que el contenedor deje un `.git/gitversion_cache` propiedad de root.
+Esperado: `0.2.0-perfil-de-usuario.1`
 
----
+### 2b. (Opcional) Rama de fix: sube patch
 
-## Nota de diseño: por qué no se usa `TrunkBased` / `Mainline`
+Sale de `main` mientras la `feat/*` sigue sin mergear. Ojo: el prefijo es `hotfix/`; una rama
+`fix/…` no está en la convención y no subiría nada. Si te lo saltas, el resto sigue igual.
 
-La forma aparentemente natural de implementar "el incremento lo decide la rama mergeada" es la
-estrategia `Mainline` del workflow `TrunkBased/preview1`, que es la única que GitVersion
-documenta para ese propósito
-([discusión #4217](https://github.com/GitTools/GitVersion/discussions/4217)).
+```bash
+cd /tmp/gitversion-demo || exit 1
+git checkout -q main
+git checkout -q -b hotfix/sesion-expirada
+echo arreglo > fix.txt && git add . && git commit -qm "corrige sesion expirada"
+/tmp/gv-version
+git checkout -q main
+git merge -q --no-ff --no-edit hotfix/sesion-expirada
+git branch -qd hotfix/sesion-expirada
+/tmp/gv-version
+```
 
-Se descartó tras probarla contra GitVersion 6.8.2. Tiene dos defectos bloqueantes:
+Esperado: `0.1.1-sesion-expirada.1` en la rama y `0.1.1` tras mergear (patch). Al mergear después
+la `feat/*` del paso 3 sigue dando `0.2.0`, porque GitVersion aplica el mayor incremento desde el
+último tag, no la suma.
 
-1. **Crash con ramas mainline encadenadas.** Mergear una rama `is-main-branch: true` dentro de
-   otra lanza `NotImplementedException`. El código lo tiene explícitamente sin implementar:
-   en `MainlineVersionStrategy.HandleMergeCommit`, si la rama mergeada y la actual son ambas
-   mainline, lanza. Eso descarta de raíz la cadena `development → staging → main`.
+### 3. Mergear a `main`
 
-2. **No acumula: la versión retrocede.** Tras un merge de `feat/*` (`0.1.0` → `0.2.0`), un
-   merge posterior de una rama con `increment: None` devuelve `0.1.0`, perdiendo el salto
-   anterior. Reproducible también con commits normales y con `+semver: none`. Rompe
-   directamente el requisito de que `docs/*` y `cicd/*` no muevan la versión.
+Con commit de merge (`--no-ff`); un squash no subiría la versión.
 
-Además el propio workflow está marcado como *preview*, así que su configuración puede cambiar
-entre versiones menores.
+```bash
+cd /tmp/gitversion-demo || exit 1
+git checkout -q main
+git merge -q --no-ff --no-edit feat/perfil-de-usuario
+/tmp/gv-version
+```
 
-**La alternativa que usa esta plantilla** es el mecanismo `commit-message-incrementing`, que
-lleva años en producción y no es preview. El nombre de la rama mergeada ya está dentro del
-mensaje del commit de merge, así que en vez de pedirle a `Mainline` que lo interprete, se
-ajustan los regex de bump (`major-version-bump-message` y compañía) para que lo lean ellos.
-Mismo resultado, sobre código estable.
+Esperado: `0.2.0`
 
-Por eso la versión de GitVersion está **fijada exactamente** en los dos fragmentos de CI y en
-el arnés: `gittools/gitversion:6.8.2`. Para subirla, cambia el pin en los tres sitios y corre
-`./tests/run.sh`.
+### 4. Borrar la rama origen
+
+```bash
+cd /tmp/gitversion-demo || exit 1
+git branch -qd feat/perfil-de-usuario
+/tmp/gv-version
+```
+
+Esperado: `0.2.0` (la versión no depende de que la rama siga existiendo)
+
+### 5. Limpiar (opcional)
+
+```bash
+rm -rf /tmp/gitversion-demo /tmp/gv-version
+```

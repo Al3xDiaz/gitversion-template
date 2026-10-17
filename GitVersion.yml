@@ -2,39 +2,41 @@
 # GitVersion - plantilla de versionado SemVer dirigido por ramas
 # =============================================================================
 #
-# El incremento lo decide la rama que se MERGEA; la etiqueta de preleanzamiento
-# la decide la rama en la que estas parado.
+# Flujo: <tipo>/* -> main. Una sola rama de larga vida.
 #
-#   feat/*      -> minor      development -> n.n.n-beta.N
-#   refactor/*  -> major      staging     -> n.n.n-rc.N
-#   hotfix/*    -> patch      main        -> n.n.n
+# El incremento lo decide la rama que se MERGEA a main:
+#
+#   feat/*      -> minor
+#   refactor/*  -> major
+#   hotfix/*    -> patch
 #   docs/*      -> sin bump
 #   cicd/*      -> sin bump
 #
-# Las promociones development -> staging -> main NO incrementan: propagan el
-# numero ya calculado.
+# main siempre da la version limpia (n.n.n). Parado en una rama de trabajo la
+# version lleva el nombre de la rama como etiqueta (n.n.n-feat-x.N), asi una
+# build de la propia rama se distingue de una release.
 #
 # COMO FUNCIONA (importante para mantenerlo):
 # El nombre de la rama mergeada ya viene dentro del mensaje del commit de merge
-# ("Merge branch 'feat/x' into development"). En vez de usar la estrategia
-# `Mainline` del workflow TrunkBased/preview1 -- que es preview y tiene dos bugs
-# bloqueantes, ver README -- le ensenamos a los regex de bump de GitVersion, que
+# ("Merge branch 'feat/x' into main"). En vez de usar la estrategia `Mainline`
+# del workflow TrunkBased/preview1 -- que es preview y tiene dos bugs
+# bloqueantes, ver docs/guia-completa.md -- le ensenamos a los regex de bump de GitVersion, que
 # son un mecanismo estable y veterano, a leer ese nombre de rama.
 #
 # CONSECUENCIA CRITICA: esto exige un COMMIT DE MERGE real. Un squash merge o un
-# rebase merge borran el mensaje y la version no sube. Ver README.
+# rebase merge borran el mensaje y la version no sube. Ver docs/guia-completa.md.
 # =============================================================================
 
-workflow: GitFlow/v1
+workflow: GitHubFlow/v1
 
 # --- Mapeo rama -> incremento -------------------------------------------------
 # Cada regex reconoce solo la rama ORIGEN del merge, en los tres formatos de
 # mensaje que se dan en la practica:
-#   git plano     Merge branch 'feat/x' into development
+#   git plano     Merge branch 'feat/x' into main
 #   GitHub PR     Merge pull request #12 from mi-org/feat/x
-#   GitLab MR     Merge branch 'feat/x' into 'development'
+#   GitLab MR     Merge branch 'feat/x' into 'main'
 # Anclar al origen evita que un back-merge hacia una rama feat/* ("Merge branch
-# 'development' into 'feat/x'") dispare un incremento por error.
+# 'main' into 'feat/x'") dispare un incremento por error.
 
 major-version-bump-message: '^Merge (branch|remote-tracking branch) ''?(origin/)?refactors?[/-]|^Merge pull request #\d+ from [^/\s]+/refactors?[/-]'
 minor-version-bump-message: '^Merge (branch|remote-tracking branch) ''?(origin/)?feat(ure)?s?[/-]|^Merge pull request #\d+ from [^/\s]+/feat(ure)?s?[/-]'
@@ -53,74 +55,53 @@ tag-prefix: '[vV]?'
 
 branches:
 
-  # --- Ramas de larga vida ----------------------------------------------------
-  # increment: None en las tres. El numero no lo mueve la rama en si, solo los
-  # mensajes de merge de las ramas de trabajo. Asi un commit directo sobre
-  # cualquiera de ellas avanza el contador de preleanzamiento pero no la version.
+  # --- Rama de larga vida -----------------------------------------------------
+  # increment: None. El numero no lo mueve la rama en si, solo los mensajes de
+  # merge de las ramas de trabajo. ContinuousDeployment es lo que produce el
+  # "1.2.0" limpio, sin sufijo; con ContinuousDelivery o ManualDeployment sale
+  # "1.2.0-8" / "1.2.0-1".
 
-  develop:
-    regex: '^dev(elop)?(ment)?$'
-    label: beta
-    increment: None
-    mode: ContinuousDelivery
-    tracks-release-branches: false
-    track-merge-target: false
-    prevent-increment:
-      when-current-commit-tagged: false
-
-  staging:
-    regex: '^staging$'
-    label: rc
-    increment: None
-    mode: ContinuousDelivery
-    source-branches: [develop, main]
-    track-merge-message: true
-    prevent-increment:
-      when-current-commit-tagged: false
-
-  # ContinuousDeployment es lo que produce el "1.2.0" limpio, sin sufijo.
-  # Con ContinuousDelivery o ManualDeployment sale "1.2.0-8" / "1.2.0-1".
   main:
     regex: '^ma(in|ster)$'
     label: ''
     increment: None
     mode: ContinuousDeployment
-    source-branches: [staging, develop]
+    source-branches: []
 
   # --- Ramas de trabajo -------------------------------------------------------
   # El `increment` de aqui aplica cuando estas PARADO en la rama (para que una
   # build de la propia feature muestre hacia donde va). El incremento que
-  # realmente queda en development lo produce el mensaje de merge.
+  # realmente queda en main lo produce el mensaje de merge.
 
   feature:
     regex: '^feat(ure)?s?[/-](?<BranchName>.+)'
     label: '{BranchName}'
     increment: Minor
-    source-branches: [develop]
+    source-branches: [main]
 
   refactor:
     regex: '^refactors?[/-](?<BranchName>.+)'
     label: '{BranchName}'
     increment: Major
     mode: ContinuousDelivery
-    source-branches: [develop]
+    source-branches: [main]
 
   hotfix:
     regex: '^hotfix(es)?[/-](?<BranchName>.+)'
     label: '{BranchName}'
     increment: Patch
-    source-branches: [main, develop]
+    source-branches: [main]
 
   docs:
     regex: '^docs?[/-](?<BranchName>.+)'
     label: '{BranchName}'
     increment: None
     mode: ContinuousDelivery
-    source-branches: [develop]
+    source-branches: [main]
 
   cicd:
     regex: '^(ci|cicd)[/-](?<BranchName>.+)'
     label: '{BranchName}'
     increment: None
     mode: ContinuousDelivery
-    source-branches: [develop]
+    source-branches: [main]

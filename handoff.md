@@ -12,9 +12,9 @@ Reglas pedidas:
 
 - El **incremento** lo decide la rama que se mergea: `feat/*` → minor, `refactor/*` → major,
   `hotfix/*` → patch, `docs/*` y `cicd/*` → sin cambio.
-- La **etiqueta** la decide la rama actual: `development` → beta, `staging` → rc,
-  `main` → versión limpia.
-- Las promociones `development → staging → main` no incrementan: propagan el número.
+- ~~La etiqueta la decide la rama actual (`development` → beta, `staging` → rc)~~ **Obsoleto
+  (2026-10-16):** el flujo se simplificó a `<tipo>/* → main`. `main` da la versión limpia y las
+  ramas de trabajo llevan su nombre como etiqueta. Ya no existen `development` ni `staging`.
 
 El problema de fondo: dejar de tocar el número de versión a mano, sin que el equipo tenga que
 recordar escribir nada especial en los commits — la señal debe salir del nombre de la rama,
@@ -117,7 +117,7 @@ temporal. Se resolvió añadiendo `/nocache` a todas las invocaciones.
 
 4. **Configurar la protección de rama en el repo consumidor.** No es opcional: el mecanismo
    depende de que exista un commit de merge real. Squash y rebase merge lo rompen. Los pasos
-   concretos para GitHub y GitLab están en el README.
+   concretos para GitHub y GitLab están en docs/guia-completa.md.
 
 5. **Poner el tag inicial** en `main` del repo consumidor (`git tag v0.1.0`), y entender que
    **etiquetar `main` al publicar es lo que abre un ciclo de versión nuevo**: GitVersion aplica
