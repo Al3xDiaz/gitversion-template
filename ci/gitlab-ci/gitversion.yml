@@ -1,0 +1,65 @@
+# =============================================================================
+# GitVersion para GitLab CI
+#
+# Un unico job que calcula la version y la publica como variable dotenv para el
+# resto del pipeline. No escribe nada en el repositorio -- no crea tags, no hace
+# push, y no necesita un token con permisos de escritura.
+#
+# Uso desde .gitlab-ci.yml:
+#
+#   include:
+#     - local: 'ci/gitversion.yml'
+#
+#   stages: [version, build]
+#
+#   build:
+#     stage: build
+#     needs: [version]
+#     script:
+#       - echo "Construyendo $SEMVER"
+#       # Para un tag de git o de imagen, anteponer la v a mano:
+#       #   docker build -t mi-app:v$SEMVER .
+# =============================================================================
+
+version:
+  stage: version
+
+  image:
+    # Debe coincidir con el pin de tests/run.sh y del fragmento de GitHub Actions.
+    # Si cambias esta version, corre ./tests/run.sh antes de hacer merge.
+    name: gittools/gitversion:6.8.2
+    # La imagen trae dotnet-gitversion como entrypoint; lo anulamos para poder
+    # ejecutar un script de shell.
+    entrypoint: [""]
+
+  variables:
+    # GOTCHA CRITICO: GitVersion recorre el historial completo de commits y tags.
+    # Con el clon superficial que hace GitLab por defecto (GIT_DEPTH=20 o 50) la
+    # version sale mal o el calculo falla directamente.
+    GIT_DEPTH: 0
+
+  script:
+    - |
+      set -eu
+
+      # En un pipeline de merge request GitLab deja el repo en HEAD detached.
+      # GitVersion necesita estar sobre la rama real para aplicar la
+      # configuracion de rama que le corresponde.
+      if [ -n "${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-}" ]; then
+        git checkout -B "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" \
+                       "origin/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+      fi
+
+      SEMVER=$(/tools/dotnet-gitversion /nocache /showvariable SemVer)
+      MMP=$(/tools/dotnet-gitversion /nocache /showvariable MajorMinorPatch)
+
+      echo "SEMVER=$SEMVER"            >  version.env
+      echo "MAJOR_MINOR_PATCH=$MMP"    >> version.env
+
+      echo "Version calculada: $SEMVER"
+
+  artifacts:
+    reports:
+      # Expone SEMVER y MAJOR_MINOR_PATCH como variables de entorno en los jobs
+      # que declaren `needs: [version]`.
+      dotenv: version.env

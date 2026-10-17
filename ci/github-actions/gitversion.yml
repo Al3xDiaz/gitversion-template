@@ -1,0 +1,78 @@
+# =============================================================================
+# GitVersion para GitHub Actions
+#
+# Workflow reutilizable: solo calcula la version y la expone como salida.
+# No escribe nada en el repositorio -- no crea tags, no hace push, y no necesita
+# permisos de escritura.
+#
+# Uso desde otro workflow:
+#
+#   jobs:
+#     version:
+#       uses: ./.github/workflows/gitversion.yml
+#
+#     build:
+#       needs: version
+#       runs-on: ubuntu-latest
+#       steps:
+#         - run: echo "Construyendo ${{ needs.version.outputs.semVer }}"
+#         # Para un tag de git o de imagen, anteponer la v a mano:
+#         #   docker build -t mi-app:v${{ needs.version.outputs.semVer }} .
+# =============================================================================
+
+name: GitVersion
+
+on:
+  workflow_call:
+    outputs:
+      semVer:
+        description: "Version completa, p. ej. 1.2.0-beta.7"
+        value: ${{ jobs.calculate.outputs.semVer }}
+      majorMinorPatch:
+        description: "Solo el numero, sin preleanzamiento, p. ej. 1.2.0"
+        value: ${{ jobs.calculate.outputs.majorMinorPatch }}
+
+env:
+  # Debe coincidir con el pin de tests/run.sh y del fragmento de GitLab.
+  # Si cambias esta version, corre ./tests/run.sh antes de hacer merge.
+  GITVERSION_IMAGE: gittools/gitversion:6.8.2
+
+jobs:
+  calculate:
+    runs-on: ubuntu-latest
+    outputs:
+      semVer: ${{ steps.gitversion.outputs.semVer }}
+      majorMinorPatch: ${{ steps.gitversion.outputs.majorMinorPatch }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GOTCHA CRITICO: GitVersion recorre el historial completo de commits y
+          # tags. Con el clon superficial que hace GitHub por defecto la version
+          # sale mal o el calculo falla directamente.
+          fetch-depth: 0
+
+          # En un pull_request, GitHub deja el repo en HEAD detached sobre un
+          # merge ref. GitVersion necesita estar sobre la rama real para poder
+          # aplicar la configuracion de rama que le corresponde.
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+
+      - name: Calcular version
+        id: gitversion
+        run: |
+          set -euo pipefail
+
+          # /nocache evita que el contenedor deje un .git/gitversion_cache
+          # propiedad de root en el workspace, que rompe pasos posteriores.
+          gv() {
+            docker run --rm -v "$PWD:/repo" "$GITVERSION_IMAGE" \
+              /repo /nocache /showvariable "$1"
+          }
+
+          SEMVER="$(gv SemVer)"
+          MMP="$(gv MajorMinorPatch)"
+
+          echo "semVer=$SEMVER"                   >> "$GITHUB_OUTPUT"
+          echo "majorMinorPatch=$MMP"             >> "$GITHUB_OUTPUT"
+
+          echo "### Version: \`$SEMVER\`"         >> "$GITHUB_STEP_SUMMARY"
